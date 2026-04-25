@@ -1,4 +1,5 @@
 import { Codec } from '../codec.js'
+import { createViewBytes } from './view.js'
 
 export const uint32 = (): Codec<number> => {
 	return {
@@ -9,8 +10,8 @@ export const uint32 = (): Codec<number> => {
 		},
 
 		write(writer, value) {
-			const bytes = new Uint8Array(4)
-			new DataView(bytes.buffer).setUint32(0, value, true)
+			const { bytes, view } = createViewBytes(4)
+			view.setUint32(0, value, true)
 			writer.raw(bytes)
 		},
 	}

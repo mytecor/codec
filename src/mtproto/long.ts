@@ -1,4 +1,5 @@
 import { Codec } from '../codec.js'
+import { createViewBytes } from './view.js'
 
 export const long = (unsigned = false): Codec<bigint> => {
 	return {
@@ -20,8 +21,7 @@ export const long = (unsigned = false): Codec<bigint> => {
 
 		write(writer, value) {
 			const normalized = BigInt.asUintN(64, value)
-			const bytes = new Uint8Array(8)
-			const view = new DataView(bytes.buffer)
+			const { bytes, view } = createViewBytes(8)
 
 			view.setUint32(0, Number(normalized & 0xffffffffn), true)
 			view.setUint32(4, Number(normalized >> 32n), true)

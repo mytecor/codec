@@ -1,9 +1,6 @@
 import { Codec, codecId, TaggedCodec } from '../codec.js'
 
-export const id = <T extends Record<string, unknown>>(
-	codec: Codec<T>,
-	id: number,
-) => {
+export const id = <T>(codec: Codec<T>, id: number) => {
 	const tag = (object: T) => {
 		Object.defineProperty(object, codecId, {
 			value: id,

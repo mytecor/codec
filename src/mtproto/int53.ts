@@ -1,4 +1,5 @@
 import { Codec } from '../codec.js'
+import { createViewBytes } from './view.js'
 
 const TWO_PWR_32_DBL = 2 ** 32
 
@@ -13,8 +14,7 @@ export const int53 = (): Codec<number> => {
 		},
 
 		write(writer, value) {
-			const bytes = new Uint8Array(8)
-			const view = new DataView(bytes.buffer)
+			const { bytes, view } = createViewBytes(8)
 
 			view.setInt32(0, (value % TWO_PWR_32_DBL) | 0, true)
 
