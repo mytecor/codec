@@ -1,10 +1,9 @@
 import { Compiler } from '../src/compiler.js'
 import { bool } from '../src/mtproto/bool.js'
-import { buffer } from '../src/mtproto/buffer.js'
 import { bytes } from '../src/mtproto/bytes.js'
 import { double } from '../src/mtproto/double.js'
 import { id } from '../src/mtproto/id.js'
-import { int } from '../src/mtproto/int.js'
+import { int32 } from '../src/mtproto/int32.js'
 import { int53 } from '../src/mtproto/int53.js'
 import { int128 } from '../src/mtproto/int128.js'
 import { int256 } from '../src/mtproto/int256.js'
@@ -22,7 +21,7 @@ const NestedSchema = object({
 
 const PrimitivesSchema = object({
 	flag: bool(),
-	count: int(),
+	count: int32(),
 	size: uint32(),
 	ratio: double(),
 	bigCount: int53(),
@@ -37,7 +36,7 @@ const PrimitivesSchema = object({
 const ExampleSchema = id(
 	object({
 		testKey: string(),
-		test: buffer(),
+		test: bytes(),
 
 		nested: NestedSchema,
 	}),
@@ -59,7 +58,7 @@ const primitives = new Compiler(PrimitivesSchema)
 const res = ann.write(
 	ExampleSchema({
 		testKey: 'hello',
-		test: Uint8Array.of(1, 2, 3, 4).buffer,
+		test: Uint8Array.of(1, 2, 3, 4),
 		nested: {
 			test: 'world',
 		},

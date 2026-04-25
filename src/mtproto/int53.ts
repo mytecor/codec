@@ -3,32 +3,28 @@ import { Codec } from '../codec.js'
 const TWO_PWR_32_DBL = 2 ** 32
 
 export const int53 = () => {
-	const codec: Codec<number> = (value) => {
-		return value
-	}
+	const codec: Codec<number> = {
+		read(reader) {
+			const low = reader.view.getUint32(reader.offset, true)
+			const high = reader.view.getInt32(reader.offset + 4, true)
+			reader.seek(8)
 
-	codec.read = (reader) => {
-		const bytes = reader.raw(8)
-		const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
-		const low = view.getUint32(0, true)
-		const high = view.getInt32(4, true)
+			return low + TWO_PWR_32_DBL * high
+		},
+		write(writer, value) {
+			const bytes = new Uint8Array(8)
+			const view = new DataView(bytes.buffer)
 
-		return low + TWO_PWR_32_DBL * high
-	}
+			view.setInt32(0, (value % TWO_PWR_32_DBL) | 0, true)
 
-	codec.write = (writer, value) => {
-		const bytes = new Uint8Array(8)
-		const view = new DataView(bytes.buffer)
+			if (value < 0) {
+				view.setInt32(4, (value / TWO_PWR_32_DBL - 1) | 0, true)
+			} else {
+				view.setInt32(4, (value / TWO_PWR_32_DBL) | 0, true)
+			}
 
-		view.setInt32(0, (value % TWO_PWR_32_DBL) | 0, true)
-
-		if (value < 0) {
-			view.setInt32(4, (value / TWO_PWR_32_DBL - 1) | 0, true)
-		} else {
-			view.setInt32(4, (value / TWO_PWR_32_DBL) | 0, true)
-		}
-
-		writer.raw(bytes)
+			writer.raw(bytes)
+		},
 	}
 
 	return codec

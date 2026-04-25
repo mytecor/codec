@@ -15,7 +15,7 @@ export const id = <T extends Record<string, unknown>>(
 	}
 
 	const taggedCodec: TaggedCodec<T> = (value) => {
-		return tag(codec(value))
+		return tag(value)
 	}
 
 	taggedCodec.read = (reader) => tag(codec.read(reader))

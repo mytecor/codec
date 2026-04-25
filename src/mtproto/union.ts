@@ -12,19 +12,16 @@ export const union = <T extends readonly unknown[]>(
 		}),
 	)
 
-	const codec: Codec<TaggedValue<T[number]>> = (value) => {
-		return value
-	}
-
-	codec.read = (reader) => {
-		const id = uint32Codec.read(reader)
-		return map[id].read(reader)
-	}
-
-	codec.write = (writer, value) => {
-		const id = value[codecId]
-		uint32Codec.write(writer, id)
-		map[id].write(writer, value)
+	const codec: Codec<TaggedValue<T[number]>> = {
+		read(reader) {
+			const id = uint32Codec.read(reader)
+			return map[id].read(reader)
+		},
+		write(writer, value) {
+			const id = value[codecId]
+			uint32Codec.write(writer, id)
+			map[id].write(writer, value)
+		},
 	}
 
 	return codec

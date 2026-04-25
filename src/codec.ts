@@ -4,8 +4,6 @@ import { Writer } from './writer.js'
 export const codecId = Symbol('codecSchemaId')
 
 export type Codec<T> = {
-	(value: T): T
-
 	read(reader: Reader): T
 	write(writer: Writer, value: T): void
 }
