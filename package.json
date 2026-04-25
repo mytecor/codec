@@ -1,23 +1,21 @@
 {
-	"name": "@mytecor/codec",
-	"version": "1.0.0",
-	"description": "Binary de/serializer",
+	"name": "codec-workspace",
+	"private": true,
 	"scripts": {
-		"test": "node --import tsx --test \"src/**/*.test.ts\"",
-		"typecheck": "tsc -p ."
+		"tsc": "pnpm -r tsc",
+		"example": "node --import tsx ./packages/mtproto/example/schema.ts",
+		"test": "pnpm -r test",
+		"lint": "pnpm -r lint --fix"
 	},
 	"keywords": [],
 	"author": "mytecor",
 	"license": "MIT",
 	"devDependencies": {
-		"@biomejs/biome": "2.4.13",
-		"@types/debug": "^4.1.13",
-		"@types/node": "25.6.0",
-		"tsx": "4.21.0",
-		"typescript": "6.0.3"
+		"@biomejs/biome": "catalog:",
+		"@types/debug": "catalog:",
+		"@types/node": "catalog:",
+		"tsx": "catalog:",
+		"typescript": "catalog:"
 	},
-	"type": "module",
-	"dependencies": {
-		"debug": "^4.4.3"
-	}
+	"type": "module"
 }

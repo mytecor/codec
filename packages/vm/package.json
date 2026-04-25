@@ -1,0 +1,21 @@
+{
+	"name": "@mytecor/codec-vm",
+	"version": "1.0.0",
+	"description": "Codec compiler and VM",
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts"
+	},
+	"scripts": {
+		"tsc": "tsc --noEmit",
+		"lint": "biome lint",
+		"test": "node --import tsx --test \"src/**/*.test.ts\""
+	},
+	"dependencies": {
+		"@mytecor/codec": "workspace:",
+		"debug": "catalog:"
+	},
+	"devDependencies": {
+		"@mytecor/codec-mtproto": "workspace:"
+	}
+}

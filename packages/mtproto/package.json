@@ -1,0 +1,21 @@
+{
+	"name": "@mytecor/codec-mtproto",
+	"version": "1.0.0",
+	"description": "MTProto schema codecs",
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts"
+	},
+	"scripts": {
+		"tsc": "tsc --noEmit",
+		"lint": "biome lint",
+		"test": "node --import tsx --test \"src/**/*.test.ts\""
+	},
+	"dependencies": {
+		"@mytecor/codec": "workspace:"
+	},
+	"devDependencies": {
+		"@mytecor/codec-mtproto": "workspace:",
+		"@mytecor/codec-vm": "workspace:"
+	}
+}
