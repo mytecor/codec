@@ -1,8 +1,8 @@
-import test from 'node:test'
 import assert from 'node:assert/strict'
-import { Reader, Writer } from '@mytecor/codec'
-import { vector } from './vector.js'
+import test from 'node:test'
+import { Reader, Writer } from '@mytecor/codec-core'
 import { uint32 } from './uint32.js'
+import { vector } from './vector.js'
 
 const VECTOR_ID = 0x1cb5c415
 

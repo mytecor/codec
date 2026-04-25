@@ -1,4 +1,4 @@
-import { Codec, TaggedCodec } from '@mytecor/codec'
+import { Codec, TaggedCodec } from '@mytecor/codec-core'
 
 export const mtprotoNode = Symbol('mtprotoCodecNode')
 

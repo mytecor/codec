@@ -8,7 +8,7 @@ import {
 	Reader,
 	sequence,
 	Writer,
-} from '@mytecor/codec'
+} from '@mytecor/codec-core'
 import {
 	id,
 	object,

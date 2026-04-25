@@ -1,4 +1,4 @@
-import { Codec } from '@mytecor/codec'
+import { Codec } from '@mytecor/codec-core'
 import { createViewBytes } from './view.js'
 
 const TWO_PWR_32_DBL = 2 ** 32

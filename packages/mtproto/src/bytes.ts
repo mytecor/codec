@@ -1,4 +1,4 @@
-import { Codec, Reader, Writer } from '@mytecor/codec'
+import { Codec, Reader, Writer } from '@mytecor/codec-core'
 
 const SHORT_BYTES_MAX_LENGTH = 253
 const LONG_BYTES_MARKER = 254

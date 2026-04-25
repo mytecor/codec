@@ -1,5 +1,5 @@
 {
-	"name": "@mytecor/codec",
+	"name": "@mytecor/codec-core",
 	"version": "1.0.0",
 	"description": "Binary codec core",
 	"type": "module",

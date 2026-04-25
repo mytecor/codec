@@ -1,4 +1,4 @@
-import { Codec } from '@mytecor/codec'
+import { Codec } from '@mytecor/codec-core'
 import { bytes } from './bytes.js'
 
 export const string = (): Codec<string> => {

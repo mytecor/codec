@@ -1,4 +1,4 @@
-import { Codec } from '@mytecor/codec'
+import { Codec } from '@mytecor/codec-core'
 import { createViewBytes } from './view.js'
 
 export const uint32 = (): Codec<number> => {

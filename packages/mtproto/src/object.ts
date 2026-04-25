@@ -1,4 +1,4 @@
-import { Codec, sequence } from '@mytecor/codec'
+import { Codec, sequence } from '@mytecor/codec-core'
 
 export const object = <T extends Record<string, unknown>>(
 	shape: { [K in keyof T]: Codec<T[K]> },

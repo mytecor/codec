@@ -1,6 +1,6 @@
 # @mytecor/codec-mtproto
 
-MTProto-oriented codecs built on top of `@mytecor/codec`.
+MTProto-oriented codecs built on top of `@mytecor/codec-core`.
 
 ## Includes
 
@@ -26,7 +26,7 @@ const User = object({
 Use `id(...)` to assign a constructor id and `union(...)` to combine variants:
 
 ```ts
-import { codecId } from '@mytecor/codec'
+import { codecId } from '@mytecor/codec-core'
 import { id, object, string, uint32, union } from '@mytecor/codec-mtproto'
 
 const User = id(

@@ -1,5 +1,11 @@
+import {
+	Codec,
+	CodecNode,
+	codecNode,
+	Reader,
+	Writer,
+} from '@mytecor/codec-core'
 import createDebug from 'debug'
-import { Codec, CodecNode, Reader, Writer, codecNode } from '@mytecor/codec'
 import { executeRead, executeWrite, ReadProgram, WriteProgram } from './vm.js'
 
 const compilerDebug = createDebug('codec:compiler')

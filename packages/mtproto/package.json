@@ -13,7 +13,7 @@
 		"example": "node --import tsx ./example/schema.ts"
 	},
 	"dependencies": {
-		"@mytecor/codec": "workspace:"
+		"@mytecor/codec-core": "workspace:"
 	},
 	"devDependencies": {
 		"@mytecor/codec-mtproto": "workspace:",

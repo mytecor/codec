@@ -1,6 +1,6 @@
 # @mytecor/codec-vm
 
-Compiler and bytecode VM for codecs built with `@mytecor/codec`.
+Compiler and bytecode VM for codecs built with `@mytecor/codec-core`.
 
 ## Includes
 
@@ -34,7 +34,7 @@ console.log(decoded)
 
 ## How It Works
 
-The compiler consumes schema metadata published by `sequence(...)` and `branch(...)` from `@mytecor/codec`.
+The compiler consumes schema metadata published by `sequence(...)` and `branch(...)` from `@mytecor/codec-core`.
 
 There are two execution modes in the overall system:
 

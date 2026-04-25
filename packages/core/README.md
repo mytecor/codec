@@ -1,4 +1,4 @@
-# @mytecor/codec
+# @mytecor/codec-core
 
 Core primitives for building binary codecs.
 
@@ -14,7 +14,7 @@ This package contains the low-level pieces shared by the rest of the workspace:
 ## Usage
 
 ```ts
-import { Codec, Reader, Writer, sequence } from '@mytecor/codec'
+import { Codec, Reader, Writer, sequence } from '@mytecor/codec-core'
 
 const byte = (): Codec<number> => ({
 	read(reader) {

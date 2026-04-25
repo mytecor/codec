@@ -1,4 +1,4 @@
-import { Codec, toBase16 } from '@mytecor/codec'
+import { Codec, toBase16 } from '@mytecor/codec-core'
 import { uint32 } from './uint32.js'
 
 const BOOL_TRUE = 0x997275b5

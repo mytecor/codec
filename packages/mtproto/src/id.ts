@@ -1,4 +1,4 @@
-import { Codec, TaggedCodec, codecId, codecInner } from '@mytecor/codec'
+import { Codec, codecId, codecInner, TaggedCodec } from '@mytecor/codec-core'
 import { defineMtprotoCodec } from './node.js'
 
 export const id = <T>(codec: Codec<T>, id: number) => {

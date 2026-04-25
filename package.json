@@ -1,5 +1,5 @@
 {
-	"name": "codec-workspace",
+	"name": "@mytecor/codec-workspace",
 	"private": true,
 	"scripts": {
 		"tsc": "pnpm -r tsc",

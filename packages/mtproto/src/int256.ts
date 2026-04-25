@@ -1,4 +1,4 @@
-import { Codec } from '@mytecor/codec'
+import { Codec } from '@mytecor/codec-core'
 
 export const int256 = (): Codec<Uint8Array> => {
 	return {

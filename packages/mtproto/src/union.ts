@@ -1,11 +1,11 @@
 import {
-	Codec,
 	branch,
+	Codec,
 	codecId,
 	codecInner,
 	TaggedCodec,
 	TaggedValue,
-} from '@mytecor/codec'
+} from '@mytecor/codec-core'
 import { uint32 } from './uint32.js'
 
 export const union = <T extends readonly unknown[]>(

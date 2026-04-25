@@ -1,4 +1,4 @@
-import { Codec, toBase16 } from '@mytecor/codec'
+import { Codec, toBase16 } from '@mytecor/codec-core'
 import { uint32 } from './uint32.js'
 
 const NULL_ID = 0x56730bcc

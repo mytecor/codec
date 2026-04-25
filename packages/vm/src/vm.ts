@@ -1,5 +1,5 @@
+import { Codec, Reader, Writer } from '@mytecor/codec-core'
 import createDebug from 'debug'
-import { Codec, Reader, Writer } from '@mytecor/codec'
 
 const vmDebug = createDebug('codec:vm')
 const readStartDebug = vmDebug.extend('read:start')

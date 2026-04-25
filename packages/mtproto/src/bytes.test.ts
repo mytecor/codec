@@ -1,6 +1,6 @@
-import test from 'node:test'
 import assert from 'node:assert/strict'
-import { Reader, Writer } from '@mytecor/codec'
+import test from 'node:test'
+import { Reader, Writer } from '@mytecor/codec-core'
 import { bytes } from './bytes.js'
 
 const codec = bytes()

@@ -4,7 +4,7 @@ A TypeScript workspace for binary serialization and deserialization built around
 
 The repository is split into three packages:
 
-- [@mytecor/codec](./packages/core/README.md) - core codec types, schema nodes, `Reader`, and `Writer`
+- [@mytecor/codec-core](./packages/core/README.md) - core codec types, schema nodes, `Reader`, and `Writer`
 - [@mytecor/codec-mtproto](./packages/mtproto/README.md) - MTProto-oriented primitive and composite codecs
 - [@mytecor/codec-vm](./packages/vm/README.md) - schema compiler and bytecode VM
 
