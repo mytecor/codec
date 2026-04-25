@@ -3,7 +3,7 @@
 	"private": true,
 	"scripts": {
 		"tsc": "pnpm -r tsc",
-		"example": "node --import tsx ./packages/mtproto/example/schema.ts",
+		"example": "pnpm --filter=@mytecor/codec-mtproto example",
 		"test": "pnpm -r test",
 		"lint": "pnpm -r lint --fix"
 	},

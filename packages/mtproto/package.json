@@ -9,7 +9,8 @@
 	"scripts": {
 		"tsc": "tsc --noEmit",
 		"lint": "biome lint",
-		"test": "node --import tsx --test \"src/**/*.test.ts\""
+		"test": "node --import tsx --test \"src/**/*.test.ts\"",
+		"example": "node --import tsx ./example/schema.ts"
 	},
 	"dependencies": {
 		"@mytecor/codec": "workspace:"
