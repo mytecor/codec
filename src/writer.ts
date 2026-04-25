@@ -1,10 +1,14 @@
 export class Writer {
-	chunks: Uint8Array[] = []
-	length = 0
+	private readonly chunks: Uint8Array[] = []
+	private length = 0
 
-	pushChunk(chunk: Uint8Array) {
+	private writeChunk(chunk: Uint8Array) {
 		this.chunks.push(chunk)
 		this.length += chunk.byteLength
+	}
+
+	raw(value: Uint8Array) {
+		this.writeChunk(value)
 	}
 
 	finish() {
