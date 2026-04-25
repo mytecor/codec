@@ -3,34 +3,34 @@ import { Writer } from './writer.js'
 
 export const codecId = Symbol('codecSchemaId')
 export const codecNode = Symbol('codecSchemaNode')
+export const codecInner = Symbol('codecInner')
 
-export type ObjectCodecNode = {
-	kind: 'object'
-	shape: Record<string, Codec<unknown>>
-}
-
-export type VectorCodecNode = {
-	kind: 'vector'
-	item: Codec<unknown>
-	bare: boolean
-}
-
-export type UnionCodecNode = {
-	kind: 'union'
-	codecs: TaggedCodec<unknown>[]
-}
-
-export type TaggedCodecNode = {
-	kind: 'tagged'
-	id: number
+export type SequenceCodecStep = {
 	codec: Codec<unknown>
+	select: (value: unknown) => unknown
+	assign: (target: unknown, value: unknown) => void
 }
 
-export type CodecNode =
-	| ObjectCodecNode
-	| VectorCodecNode
-	| UnionCodecNode
-	| TaggedCodecNode
+export type SequenceCodecNode = {
+	kind: 'sequence'
+	create: () => unknown
+	steps: SequenceCodecStep[]
+}
+
+export type BranchCodecBranch = {
+	key: unknown
+	codec: Codec<unknown>
+	map?: (value: unknown) => unknown
+}
+
+export type BranchCodecNode = {
+	kind: 'branch'
+	selector: Codec<unknown>
+	select: (value: unknown) => unknown
+	branches: BranchCodecBranch[]
+}
+
+export type CodecNode = SequenceCodecNode | BranchCodecNode
 
 export type Codec<T> = {
 	read(reader: Reader): T
@@ -49,7 +49,7 @@ export type TaggedCodec<T> = {
 	write(writer: Writer, value: TaggedValue<T>): void
 
 	[codecId]: number
-	[codecNode]?: CodecNode
+	[codecInner]: Codec<T>
 }
 
 export type InferCodec<T> = T extends Codec<infer U> ? U : never
@@ -57,4 +57,18 @@ export type InferCodec<T> = T extends Codec<infer U> ? U : never
 export const defineCodec = <T>(codec: Codec<T>, node: CodecNode): Codec<T> => {
 	codec[codecNode] = node
 	return codec
+}
+
+export const sequence = <T>(
+	codec: Codec<T>,
+	node: Omit<SequenceCodecNode, 'kind'>,
+): Codec<T> => {
+	return defineCodec(codec, { kind: 'sequence', ...node })
+}
+
+export const branch = <T>(
+	codec: Codec<T>,
+	node: Omit<BranchCodecNode, 'kind'>,
+): Codec<T> => {
+	return defineCodec(codec, { kind: 'branch', ...node })
 }

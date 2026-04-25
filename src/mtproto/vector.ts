@@ -1,5 +1,6 @@
-import { Codec, defineCodec } from '../codec.js'
+import { Codec } from '../codec.js'
 import { toBase16 } from '../toBase16.js'
+import { defineMtprotoCodec } from './node.js'
 import { uint32 } from './uint32.js'
 
 const VECTOR_ID = 0x1cb5c415
@@ -7,7 +8,7 @@ const VECTOR_ID = 0x1cb5c415
 export const vector = <T>(item: Codec<T>, bare = false): Codec<T[]> => {
 	const uint32Codec = uint32()
 
-	return defineCodec(
+	return defineMtprotoCodec(
 		{
 			read(reader) {
 				if (!bare) {

@@ -1,277 +1,304 @@
-import { Codec, CodecNode, codecId, codecNode } from './codec.js'
+import createDebug from 'debug'
+import { Codec, CodecNode, codecNode } from './codec.js'
 import { Reader } from './reader.js'
-import {
-	executeRead,
-	executeWrite,
-	ReadInstruction,
-	ReadProgram,
-	WriteInstruction,
-	WriteProgram,
-} from './vm.js'
+import { executeRead, executeWrite, ReadProgram, WriteProgram } from './vm.js'
 import { Writer } from './writer.js'
 
-type CompileTask =
-	| {
-			type: 'visit'
-			codec: Codec<unknown>
-			node: CodecNode | undefined
-	  }
-	| {
-			type: 'object_field_before'
-			key: string
-	  }
-	| {
-			type: 'object_field_after'
-			key: string
-	  }
-	| {
-			type: 'vector_finish'
-			readStart: number
-			readBody: number
-			writeStart: number
-			writeBody: number
-	  }
-	| {
-			type: 'union_variant'
-			readDispatchIndex: number
-			writeDispatchIndex: number
-			taggedCodec: Codec<unknown> & { [codecId]: number }
-			readJumps: number[]
-			writeJumps: number[]
-	  }
-	| {
-			type: 'union_variant_end'
-			readJumps: number[]
-			writeJumps: number[]
-	  }
-	| {
-			type: 'union_finish'
-			readJumps: number[]
-			writeJumps: number[]
-	  }
-	| {
-			type: 'tag'
-			id: number
-	  }
+const compilerDebug = createDebug('codec:compiler')
+const startDebug = compilerDebug.extend('start')
+const finishDebug = compilerDebug.extend('finish')
+const scheduleSequenceDebug = compilerDebug.extend('schedule:sequence')
+const scheduleBranchDebug = compilerDebug.extend('schedule:branch')
+const taskVisitDebug = compilerDebug.extend('task:visit')
+const emitCallDebug = compilerDebug.extend('emit:call')
+const emitPushValueDebug = compilerDebug.extend('emit:push_value')
+const emitSequenceStepFinishDebug = compilerDebug.extend(
+	'emit:sequence_step_finish',
+)
+const emitBranchCaseStartDebug = compilerDebug.extend('emit:branch_case_start')
+const emitMapValueDebug = compilerDebug.extend('emit:map_value')
+const emitBranchCaseFinishDebug = compilerDebug.extend(
+	'emit:branch_case_finish',
+)
+const emitBranchFinishDebug = compilerDebug.extend('emit:branch_finish')
 
-const compileNode = (
+type VisitTask = {
+	type: 'visit'
+	codec: Codec<unknown>
+	node: CodecNode | undefined
+}
+
+type SequenceStepStartTask = {
+	type: 'sequence_step_start'
+	step: Extract<CodecNode, { kind: 'sequence' }>['steps'][number]
+}
+
+type SequenceStepFinishTask = {
+	type: 'sequence_step_finish'
+	step: Extract<CodecNode, { kind: 'sequence' }>['steps'][number]
+}
+
+type BranchCompileState = {
+	readInstruction: Extract<ReadProgram[number], { opcode: 'branch' }>
+	writeInstruction: Extract<WriteProgram[number], { opcode: 'branch' }>
+	readEndJumps: number[]
+	writeEndJumps: number[]
+}
+
+type BranchCaseStartTask = {
+	type: 'branch_case_start'
+	branch: Extract<CodecNode, { kind: 'branch' }>['branches'][number]
+	state: BranchCompileState
+}
+
+type BranchCaseFinishTask = {
+	type: 'branch_case_finish'
+	branch: Extract<CodecNode, { kind: 'branch' }>['branches'][number]
+	state: BranchCompileState
+}
+
+type BranchFinishTask = {
+	type: 'branch_finish'
+	state: BranchCompileState
+}
+
+type CompileTask =
+	| VisitTask
+	| SequenceStepStartTask
+	| SequenceStepFinishTask
+	| BranchCaseStartTask
+	| BranchCaseFinishTask
+	| BranchFinishTask
+
+const visitTask = (codec: Codec<unknown>): VisitTask => ({
+	type: 'visit',
+	codec,
+	node: codec[codecNode],
+})
+
+const emitCall = (
+	codec: Codec<unknown>,
+	readProgram: ReadProgram,
+	writeProgram: WriteProgram,
+): void => {
+	readProgram.push({ opcode: 'call', codec })
+	writeProgram.push({ opcode: 'call', codec })
+}
+
+const scheduleSequence = (
+	workStack: CompileTask[],
+	node: Extract<CodecNode, { kind: 'sequence' }>,
+	readProgram: ReadProgram,
+	writeProgram: WriteProgram,
+): void => {
+	readProgram.push({ opcode: 'create_value', create: node.create })
+	scheduleSequenceDebug('%O', {
+		stepCount: node.steps.length,
+		readProgramLength: readProgram.length,
+		writeProgramLength: writeProgram.length,
+	})
+
+	for (let index = node.steps.length - 1; index >= 0; index -= 1) {
+		const step = node.steps[index]
+		workStack.push({ type: 'sequence_step_finish', step })
+		workStack.push(visitTask(step.codec))
+		workStack.push({ type: 'sequence_step_start', step })
+	}
+}
+
+const scheduleBranch = (
+	workStack: CompileTask[],
+	node: Extract<CodecNode, { kind: 'branch' }>,
+	readProgram: ReadProgram,
+	writeProgram: WriteProgram,
+): void => {
+	const state: BranchCompileState = {
+		readInstruction: {
+			opcode: 'branch',
+			selector: node.selector,
+			branches: new Map(),
+		},
+		writeInstruction: {
+			opcode: 'branch',
+			selector: node.selector,
+			select: node.select,
+			branches: new Map(),
+		},
+		readEndJumps: [],
+		writeEndJumps: [],
+	}
+
+	readProgram.push(state.readInstruction)
+	writeProgram.push(state.writeInstruction)
+	scheduleBranchDebug('%O', {
+		branchCount: node.branches.length,
+		readProgramLength: readProgram.length,
+		writeProgramLength: writeProgram.length,
+	})
+
+	workStack.push({ type: 'branch_finish', state })
+	for (let index = node.branches.length - 1; index >= 0; index -= 1) {
+		workStack.push({
+			type: 'branch_case_start',
+			branch: node.branches[index],
+			state,
+		})
+	}
+}
+
+const buildPrograms = (
 	codec: Codec<unknown>,
 	node: CodecNode | undefined,
-	readProgram: ReadProgram = [],
-	writeProgram: WriteProgram = [],
 ): { readProgram: ReadProgram; writeProgram: WriteProgram } => {
-	const tasks: CompileTask[] = [{ type: 'visit', codec, node }]
+	const readProgram: ReadProgram = []
+	const writeProgram: WriteProgram = []
+	const workStack: CompileTask[] = [{ type: 'visit', codec, node }]
 
-	while (tasks.length > 0) {
-		const task = tasks.pop() as CompileTask
+	startDebug('%O', { hasNode: node !== undefined })
+
+	while (workStack.length > 0) {
+		const task = workStack.pop()
+		if (!task) {
+			continue
+		}
 
 		switch (task.type) {
 			case 'visit': {
+				taskVisitDebug('%O', {
+					hasNode: task.node !== undefined,
+					kind: task.node?.kind,
+					remainingTasks: workStack.length,
+				})
+
 				if (task.node === undefined) {
-					readProgram.push({ opcode: 'call', codec: task.codec })
-					writeProgram.push({ opcode: 'call', codec: task.codec })
+					emitCall(task.codec, readProgram, writeProgram)
+					emitCallDebug('%O', {
+						readProgramLength: readProgram.length,
+						writeProgramLength: writeProgram.length,
+					})
 					break
 				}
 
 				switch (task.node.kind) {
-					case 'object': {
-						readProgram.push({ opcode: 'object_new' })
-
-						const keys = Object.keys(task.node.shape)
-						for (let index = keys.length - 1; index >= 0; index -= 1) {
-							const key = keys[index]
-							const childCodec = task.node.shape[key]
-							tasks.push({ type: 'object_field_after', key })
-							tasks.push({
-								type: 'visit',
-								codec: childCodec,
-								node: childCodec[codecNode],
-							})
-							tasks.push({ type: 'object_field_before', key })
-						}
+					case 'sequence':
+						scheduleSequence(workStack, task.node, readProgram, writeProgram)
 						break
-					}
 
-					case 'vector': {
-						const readStart = readProgram.length
-						readProgram.push({
-							opcode: 'vector_start',
-							bare: task.node.bare,
-							body: -1,
-							exit: -1,
-						})
-						const writeStart = writeProgram.length
-						writeProgram.push({
-							opcode: 'vector_start',
-							bare: task.node.bare,
-							body: -1,
-							exit: -1,
-						})
-						const readBody = readProgram.length
-						const writeBody = writeProgram.length
-						tasks.push({
-							type: 'vector_finish',
-							readStart,
-							readBody,
-							writeStart,
-							writeBody,
-						})
-						tasks.push({
-							type: 'visit',
-							codec: task.node.item,
-							node: task.node.item[codecNode],
-						})
-						break
-					}
-
-					case 'union': {
-						const readDispatchIndex = readProgram.length
-						readProgram.push({ opcode: 'union_dispatch', variants: new Map() })
-						const writeDispatchIndex = writeProgram.length
-						writeProgram.push({ opcode: 'union_dispatch', variants: new Map() })
-						const readJumps: number[] = []
-						const writeJumps: number[] = []
-						tasks.push({ type: 'union_finish', readJumps, writeJumps })
-
-						for (
-							let index = task.node.codecs.length - 1;
-							index >= 0;
-							index -= 1
-						) {
-							tasks.push({
-								type: 'union_variant',
-								readDispatchIndex,
-								writeDispatchIndex,
-								taggedCodec: task.node.codecs[index],
-								readJumps,
-								writeJumps,
-							})
-						}
-						break
-					}
-
-					case 'tagged':
-						tasks.push({ type: 'tag', id: task.node.id })
-						tasks.push({
-							type: 'visit',
-							codec: task.node.codec,
-							node: task.node.codec[codecNode],
-						})
+					case 'branch':
+						scheduleBranch(workStack, task.node, readProgram, writeProgram)
 						break
 				}
 
 				break
 			}
 
-			case 'object_field_before':
-				writeProgram.push({ opcode: 'push_field', key: task.key })
+			case 'sequence_step_start':
+				writeProgram.push({ opcode: 'push_value', select: task.step.select })
+				emitPushValueDebug('%O', {
+					writeProgramLength: writeProgram.length,
+				})
 				break
 
-			case 'object_field_after':
-				readProgram.push({ opcode: 'object_set', key: task.key })
+			case 'sequence_step_finish':
+				readProgram.push({ opcode: 'assign_value', assign: task.step.assign })
 				writeProgram.push({ opcode: 'pop_value' })
+				emitSequenceStepFinishDebug('%O', {
+					readProgramLength: readProgram.length,
+					writeProgramLength: writeProgram.length,
+				})
 				break
 
-			case 'vector_finish': {
-				const readVectorStart = readProgram[task.readStart] as Extract<
-					ReadInstruction,
-					{ opcode: 'vector_start' }
-				>
-				readVectorStart.body = task.readBody
-				readProgram.push({ opcode: 'vector_next', body: task.readBody })
-				readVectorStart.exit = readProgram.length
-
-				const writeVectorStart = writeProgram[task.writeStart] as Extract<
-					WriteInstruction,
-					{ opcode: 'vector_start' }
-				>
-				writeVectorStart.body = task.writeBody
-				writeProgram.push({ opcode: 'vector_next', body: task.writeBody })
-				writeVectorStart.exit = writeProgram.length
-				break
-			}
-
-			case 'union_variant': {
-				const readDispatch = readProgram[task.readDispatchIndex] as Extract<
-					ReadInstruction,
-					{ opcode: 'union_dispatch' }
-				>
-				readDispatch.variants.set(task.taggedCodec[codecId], readProgram.length)
-
-				const writeDispatch = writeProgram[task.writeDispatchIndex] as Extract<
-					WriteInstruction,
-					{ opcode: 'union_dispatch' }
-				>
-				writeDispatch.variants.set(
-					task.taggedCodec[codecId],
+			case 'branch_case_start':
+				task.state.readInstruction.branches.set(
+					task.branch.key,
+					readProgram.length,
+				)
+				task.state.writeInstruction.branches.set(
+					task.branch.key,
 					writeProgram.length,
 				)
-
-				tasks.push({
-					type: 'union_variant_end',
-					readJumps: task.readJumps,
-					writeJumps: task.writeJumps,
+				emitBranchCaseStartDebug('%O', {
+					key: task.branch.key,
+					readTarget: readProgram.length,
+					writeTarget: writeProgram.length,
 				})
-				tasks.push({
-					type: 'visit',
-					codec: task.taggedCodec,
-					node: task.taggedCodec[codecNode],
+				workStack.push({
+					type: 'branch_case_finish',
+					branch: task.branch,
+					state: task.state,
 				})
+				workStack.push(visitTask(task.branch.codec))
 				break
-			}
 
-			case 'union_variant_end': {
-				const readJumpIndex = readProgram.length
-				readProgram.push({ opcode: 'jump', target: -1 })
-				task.readJumps.push(readJumpIndex)
-
-				const writeJumpIndex = writeProgram.length
-				writeProgram.push({ opcode: 'jump', target: -1 })
-				task.writeJumps.push(writeJumpIndex)
-				break
-			}
-
-			case 'union_finish': {
-				const readEnd = readProgram.length
-				const writeEnd = writeProgram.length
-
-				for (const jumpIndex of task.readJumps) {
-					const jump = readProgram[jumpIndex] as Extract<
-						ReadInstruction,
-						{ opcode: 'jump' }
-					>
-					jump.target = readEnd
+			case 'branch_case_finish': {
+				if (task.branch.map) {
+					readProgram.push({ opcode: 'map_value', map: task.branch.map })
+					emitMapValueDebug('%O', {
+						key: task.branch.key,
+						readProgramLength: readProgram.length,
+					})
 				}
 
-				for (const jumpIndex of task.writeJumps) {
-					const jump = writeProgram[jumpIndex] as Extract<
-						WriteInstruction,
-						{ opcode: 'jump' }
-					>
-					jump.target = writeEnd
-				}
+				task.state.readEndJumps.push(
+					readProgram.push({ opcode: 'jump', target: -1 }) - 1,
+				)
+				task.state.writeEndJumps.push(
+					writeProgram.push({ opcode: 'jump', target: -1 }) - 1,
+				)
+				emitBranchCaseFinishDebug('%O', {
+					key: task.branch.key,
+					readProgramLength: readProgram.length,
+					writeProgramLength: writeProgram.length,
+				})
 				break
 			}
 
-			case 'tag':
-				readProgram.push({ opcode: 'tag', id: task.id })
+			case 'branch_finish':
+				for (const jumpIndex of task.state.readEndJumps) {
+					;(
+						readProgram[jumpIndex] as Extract<
+							ReadProgram[number],
+							{ opcode: 'jump' }
+						>
+					).target = readProgram.length
+				}
+
+				for (const jumpIndex of task.state.writeEndJumps) {
+					;(
+						writeProgram[jumpIndex] as Extract<
+							WriteProgram[number],
+							{ opcode: 'jump' }
+						>
+					).target = writeProgram.length
+				}
+
+				emitBranchFinishDebug('%O', {
+					readProgramLength: readProgram.length,
+					writeProgramLength: writeProgram.length,
+				})
 				break
 		}
 	}
+
+	finishDebug('%O', {
+		readProgramLength: readProgram.length,
+		writeProgramLength: writeProgram.length,
+	})
 
 	return { readProgram, writeProgram }
 }
 
 export class Compiler<T> {
-	schema: Codec<T>
 	private readonly readProgram: ReadProgram
 	private readonly writeProgram: WriteProgram
 
-	constructor(schema: Codec<T>) {
-		this.schema = schema
-		const programs = compileNode(schema as Codec<unknown>, schema[codecNode])
-		this.readProgram = programs.readProgram
-		this.writeProgram = programs.writeProgram
+	constructor(readonly schema: Codec<T>) {
+		const { readProgram, writeProgram } = buildPrograms(
+			schema,
+			schema[codecNode],
+		)
+		this.readProgram = readProgram
+		this.writeProgram = writeProgram
 	}
 
 	read(buffer: ArrayBuffer) {

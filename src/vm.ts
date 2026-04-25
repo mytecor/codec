@@ -1,74 +1,112 @@
-import { Codec, codecId } from './codec.js'
+import createDebug from 'debug'
+import { Codec } from './codec.js'
 import { Reader } from './reader.js'
-import { toBase16 } from './toBase16.js'
 import { Writer } from './writer.js'
 
-const VECTOR_ID = 0x1cb5c415
+const vmDebug = createDebug('codec:vm')
+const readStartDebug = vmDebug.extend('read:start')
+const readFinishDebug = vmDebug.extend('read:finish')
+const readInstructionDebug = vmDebug.extend('read:instruction')
+const readBranchDebug = vmDebug.extend('read:branch')
+const writeStartDebug = vmDebug.extend('write:start')
+const writeFinishDebug = vmDebug.extend('write:finish')
+const writeInstructionDebug = vmDebug.extend('write:instruction')
+const writeBranchDebug = vmDebug.extend('write:branch')
 
 export type ReadInstruction =
 	| { opcode: 'call'; codec: Codec<unknown> }
-	| { opcode: 'object_new' }
-	| { opcode: 'object_set'; key: string }
-	| { opcode: 'vector_start'; bare: boolean; body: number; exit: number }
-	| { opcode: 'vector_next'; body: number }
-	| { opcode: 'union_dispatch'; variants: Map<number, number> }
-	| { opcode: 'tag'; id: number }
+	| { opcode: 'create_value'; create: () => unknown }
+	| {
+			opcode: 'assign_value'
+			assign: (target: unknown, value: unknown) => void
+	  }
+	| {
+			opcode: 'branch'
+			selector: Codec<unknown>
+			branches: Map<unknown, number>
+	  }
+	| { opcode: 'map_value'; map: (value: unknown) => unknown }
 	| { opcode: 'jump'; target: number }
 
 export type WriteInstruction =
 	| { opcode: 'call'; codec: Codec<unknown> }
-	| { opcode: 'push_field'; key: string }
+	| { opcode: 'push_value'; select: (value: unknown) => unknown }
 	| { opcode: 'pop_value' }
-	| { opcode: 'vector_start'; bare: boolean; body: number; exit: number }
-	| { opcode: 'vector_next'; body: number }
-	| { opcode: 'union_dispatch'; variants: Map<number, number> }
+	| {
+			opcode: 'branch'
+			selector: Codec<unknown>
+			select: (value: unknown) => unknown
+			branches: Map<unknown, number>
+	  }
 	| { opcode: 'jump'; target: number }
 
 export type ReadProgram = ReadInstruction[]
 export type WriteProgram = WriteInstruction[]
 
-type ReadVectorFrame = {
-	remaining: number
-	values: unknown[]
-	exit: number
+const describeReadInstruction = (
+	instruction: ReadInstruction,
+): Record<string, unknown> => {
+	switch (instruction.opcode) {
+		case 'call':
+			return { opcode: instruction.opcode }
+
+		case 'create_value':
+			return { opcode: instruction.opcode }
+
+		case 'assign_value':
+			return { opcode: instruction.opcode }
+
+		case 'branch':
+			return {
+				opcode: instruction.opcode,
+				branchCount: instruction.branches.size,
+			}
+
+		case 'map_value':
+			return { opcode: instruction.opcode }
+
+		case 'jump':
+			return { opcode: instruction.opcode, target: instruction.target }
+	}
 }
 
-type WriteVectorFrame = {
-	values: unknown[]
-	index: number
-	exit: number
-}
+const describeWriteInstruction = (
+	instruction: WriteInstruction,
+): Record<string, unknown> => {
+	switch (instruction.opcode) {
+		case 'call':
+			return { opcode: instruction.opcode }
 
-const tagValue = <T>(value: T, id: number): T => {
-	Object.defineProperty(value as object, codecId, {
-		value: id,
-		enumerable: false,
-		configurable: false,
-	})
+		case 'push_value':
+			return { opcode: instruction.opcode }
 
-	return value
-}
+		case 'pop_value':
+			return { opcode: instruction.opcode }
 
-const readUint32 = (reader: Reader): number => {
-	const value = reader.view.getUint32(reader.offset, true)
-	reader.seek(4)
-	return value
-}
+		case 'branch':
+			return {
+				opcode: instruction.opcode,
+				branchCount: instruction.branches.size,
+			}
 
-const writeUint32 = (writer: Writer, value: number): void => {
-	const bytes = new Uint8Array(4)
-	const view = new DataView(bytes.buffer)
-	view.setUint32(0, value, true)
-	writer.raw(bytes)
+		case 'jump':
+			return { opcode: instruction.opcode, target: instruction.target }
+	}
 }
 
 export const executeRead = (program: ReadProgram, reader: Reader): unknown => {
 	const valueStack: unknown[] = []
-	const vectorFrames: ReadVectorFrame[] = []
 	let ip = 0
+
+	readStartDebug('%O', { programLength: program.length })
 
 	while (ip < program.length) {
 		const instruction = program[ip]
+		readInstructionDebug('%O', {
+			ip,
+			stackDepth: valueStack.length,
+			...describeReadInstruction(instruction),
+		})
 
 		switch (instruction.opcode) {
 			case 'call':
@@ -76,82 +114,35 @@ export const executeRead = (program: ReadProgram, reader: Reader): unknown => {
 				ip += 1
 				break
 
-			case 'object_new':
-				valueStack.push({})
+			case 'create_value':
+				valueStack.push(instruction.create())
 				ip += 1
 				break
 
-			case 'object_set': {
+			case 'assign_value': {
 				const value = valueStack.pop()
-				const object = valueStack[valueStack.length - 1] as Record<
-					string,
-					unknown
-				>
-				object[instruction.key] = value
+				const target = valueStack[valueStack.length - 1]
+				instruction.assign(target, value)
 				ip += 1
 				break
 			}
 
-			case 'vector_start': {
-				if (!instruction.bare) {
-					const id = readUint32(reader)
-
-					if (id !== VECTOR_ID) {
-						throw new Error(
-							`Invalid object code, expected ${toBase16(VECTOR_ID)} (vector), got ${toBase16(id)}`,
-						)
-					}
-				}
-
-				const length = readUint32(reader)
-
-				if (length === 0) {
-					valueStack.push([])
-					ip = instruction.exit
-					break
-				}
-
-				vectorFrames.push({
-					remaining: length,
-					values: [],
-					exit: instruction.exit,
-				})
-				ip = instruction.body
-				break
-			}
-
-			case 'vector_next': {
-				const frame = vectorFrames[vectorFrames.length - 1]
-				frame.values.push(valueStack.pop())
-				frame.remaining -= 1
-
-				if (frame.remaining === 0) {
-					vectorFrames.pop()
-					valueStack.push(frame.values)
-					ip = frame.exit
-					break
-				}
-
-				ip = instruction.body
-				break
-			}
-
-			case 'union_dispatch': {
-				const id = readUint32(reader)
-				const target = instruction.variants.get(id)
+			case 'branch': {
+				const key = instruction.selector.read(reader)
+				const target = instruction.branches.get(key)
 
 				if (target === undefined) {
-					throw new Error(`Unknown union variant ${toBase16(id)}`)
+					throw new Error(`Missing branch for key ${String(key)}`)
 				}
 
+				readBranchDebug('%O', { key, target })
 				ip = target
 				break
 			}
 
-			case 'tag':
-				valueStack[valueStack.length - 1] = tagValue(
+			case 'map_value':
+				valueStack[valueStack.length - 1] = instruction.map(
 					valueStack[valueStack.length - 1],
-					instruction.id,
 				)
 				ip += 1
 				break
@@ -162,7 +153,12 @@ export const executeRead = (program: ReadProgram, reader: Reader): unknown => {
 		}
 	}
 
-	return valueStack[valueStack.length - 1]
+	const result = valueStack[valueStack.length - 1]
+	readFinishDebug('%O', {
+		stackDepth: valueStack.length,
+		result,
+	})
+	return result
 }
 
 export const executeWrite = (
@@ -171,12 +167,22 @@ export const executeWrite = (
 	rootValue: unknown,
 ): void => {
 	const valueStack: unknown[] = [rootValue]
-	const vectorFrames: WriteVectorFrame[] = []
 	let ip = 0
+
+	writeStartDebug('%O', {
+		programLength: program.length,
+		rootValue,
+	})
 
 	while (ip < program.length) {
 		const instruction = program[ip]
 		const value = valueStack[valueStack.length - 1]
+		writeInstructionDebug('%O', {
+			ip,
+			stackDepth: valueStack.length,
+			value,
+			...describeWriteInstruction(instruction),
+		})
 
 		switch (instruction.opcode) {
 			case 'call':
@@ -184,8 +190,8 @@ export const executeWrite = (
 				ip += 1
 				break
 
-			case 'push_field':
-				valueStack.push((value as Record<string, unknown>)[instruction.key])
+			case 'push_value':
+				valueStack.push(instruction.select(value))
 				ip += 1
 				break
 
@@ -194,51 +200,16 @@ export const executeWrite = (
 				ip += 1
 				break
 
-			case 'vector_start': {
-				const values = value as unknown[]
-
-				if (!instruction.bare) {
-					writeUint32(writer, VECTOR_ID)
-				}
-
-				writeUint32(writer, values.length)
-
-				if (values.length === 0) {
-					ip = instruction.exit
-					break
-				}
-
-				vectorFrames.push({ values, index: 0, exit: instruction.exit })
-				valueStack.push(values[0])
-				ip = instruction.body
-				break
-			}
-
-			case 'vector_next': {
-				valueStack.pop()
-				const frame = vectorFrames[vectorFrames.length - 1]
-				frame.index += 1
-
-				if (frame.index === frame.values.length) {
-					vectorFrames.pop()
-					ip = frame.exit
-					break
-				}
-
-				valueStack.push(frame.values[frame.index])
-				ip = instruction.body
-				break
-			}
-
-			case 'union_dispatch': {
-				const id = (value as { [codecId]: number })[codecId]
-				const target = instruction.variants.get(id)
+			case 'branch': {
+				const key = instruction.select(value)
+				const target = instruction.branches.get(key)
 
 				if (target === undefined) {
-					throw new Error(`Unknown union variant ${toBase16(id)}`)
+					throw new Error(`Missing branch for key ${String(key)}`)
 				}
 
-				writeUint32(writer, id)
+				instruction.selector.write(writer, key as never)
+				writeBranchDebug('%O', { key, target })
 				ip = target
 				break
 			}
@@ -248,4 +219,6 @@ export const executeWrite = (
 				break
 		}
 	}
+
+	writeFinishDebug('%O', { stackDepth: valueStack.length })
 }

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { Codec, codecId } from './codec.js'
+import { branch, Codec, codecId, codecNode, sequence } from './codec.js'
 import { Compiler } from './compiler.js'
 import { id } from './mtproto/id.js'
 import { object } from './mtproto/object.js'
@@ -58,6 +58,18 @@ test('compiler executes bytecode for objects, vectors, strings, and unions', () 
 	assert.deepEqual(decodedChannel, { id: 9, title: 'news', members: 42 })
 })
 
+test('union exposes a generic branch node for compilation', () => {
+	const user = id(object({ id: uint32() }), 0x10000001)
+	const channel = id(object({ id: uint32() }), 0x10000002)
+	const schema = union([user, channel] as const)
+
+	assert.equal(schema[codecNode]?.kind, 'branch')
+	assert.deepEqual(
+		schema[codecNode]?.branches.map((branch) => branch.key),
+		[user[codecId], channel[codecId]],
+	)
+})
+
 test('compiler falls back to codec.read and codec.write for custom leaves', () => {
 	const base = uint32()
 	const custom: Codec<number> = {
@@ -86,4 +98,52 @@ test('compiler falls back to codec.read and codec.write for custom leaves', () =
 		new Uint8Array(directWriter.finish()),
 	)
 	assert.deepEqual(schema.read(new Reader(encoded)), decoded)
+})
+
+test('sequence and branch constructors publish generic codec nodes', () => {
+	const stepCodec = uint32()
+	const selectorCodec = uint32()
+	const sequenceCodec = sequence(
+		{
+			read: () => ({ value: 0 }),
+			write: () => {},
+		},
+		{
+			create() {
+				return {}
+			},
+			steps: [
+				{
+					codec: stepCodec,
+					select(value) {
+						return (value as { value: number }).value
+					},
+					assign(target, value) {
+						;(target as { value: number }).value = value as number
+					},
+				},
+			],
+		},
+	)
+	const branchCodec = branch(
+		{
+			read: () => ({ kind: 1 }),
+			write: () => {},
+		},
+		{
+			selector: selectorCodec,
+			select(value) {
+				return (value as { kind: number }).kind
+			},
+			branches: [{ key: 1, codec: stepCodec }],
+		},
+	)
+
+	assert.equal(sequenceCodec[codecNode]?.kind, 'sequence')
+	assert.equal(sequenceCodec[codecNode]?.steps.length, 1)
+	assert.equal(branchCodec[codecNode]?.kind, 'branch')
+	assert.deepEqual(
+		branchCodec[codecNode]?.branches.map((entry) => entry.key),
+		[1],
+	)
 })

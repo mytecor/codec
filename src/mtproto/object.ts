@@ -1,11 +1,11 @@
-import { Codec, defineCodec } from '../codec.js'
+import { Codec, sequence } from '../codec.js'
 
 export const object = <T extends Record<string, unknown>>(
 	shape: { [K in keyof T]: Codec<T[K]> },
 ): Codec<T> => {
 	const keys = Object.keys(shape) as Array<keyof T>
 
-	return defineCodec(
+	return sequence(
 		{
 			read(reader) {
 				const parsed = {} as T
@@ -23,6 +23,19 @@ export const object = <T extends Record<string, unknown>>(
 				}
 			},
 		},
-		{ kind: 'object', shape },
+		{
+			create() {
+				return {}
+			},
+			steps: keys.map((key) => ({
+				codec: shape[key],
+				select(value) {
+					return (value as T)[key]
+				},
+				assign(target, value) {
+					;(target as T)[key] = value as T[typeof key]
+				},
+			})),
+		},
 	)
 }

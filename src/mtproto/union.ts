@@ -1,7 +1,8 @@
 import {
 	Codec,
+	branch,
 	codecId,
-	defineCodec,
+	codecInner,
 	TaggedCodec,
 	TaggedValue,
 } from '../codec.js'
@@ -18,7 +19,7 @@ export const union = <T extends readonly unknown[]>(
 		}),
 	)
 
-	return defineCodec(
+	return branch(
 		{
 			read(reader) {
 				const id = uint32Codec.read(reader)
@@ -31,6 +32,18 @@ export const union = <T extends readonly unknown[]>(
 				map[id].write(writer, value)
 			},
 		},
-		{ kind: 'union', codecs: [...codecs] },
+		{
+			selector: uint32Codec as Codec<unknown>,
+			select(value) {
+				return (value as TaggedValue<T[number]>)[codecId]
+			},
+			branches: Object.values(codecs).map((codec) => ({
+				key: codec[codecId],
+				codec: codec[codecInner] as Codec<unknown>,
+				map(value) {
+					return codec(value as T[number])
+				},
+			})),
+		},
 	)
 }

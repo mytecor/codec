@@ -1,4 +1,5 @@
-import { Codec, codecId, codecNode, TaggedCodec } from '../codec.js'
+import { Codec, codecId, codecInner, TaggedCodec } from '../codec.js'
+import { defineMtprotoCodec } from './node.js'
 
 export const id = <T>(codec: Codec<T>, id: number) => {
 	const tag = (object: T) => {
@@ -18,11 +19,11 @@ export const id = <T>(codec: Codec<T>, id: number) => {
 	taggedCodec.read = (reader) => tag(codec.read(reader))
 	taggedCodec.write = codec.write
 	taggedCodec[codecId] = id
-	taggedCodec[codecNode] = {
+	taggedCodec[codecInner] = codec
+
+	return defineMtprotoCodec(taggedCodec as Codec<unknown>, {
 		kind: 'tagged',
 		id,
 		codec: codec as Codec<unknown>,
-	}
-
-	return taggedCodec
+	}) as TaggedCodec<T>
 }
