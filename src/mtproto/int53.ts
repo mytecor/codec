@@ -2,8 +2,8 @@ import { Codec } from '../codec.js'
 
 const TWO_PWR_32_DBL = 2 ** 32
 
-export const int53 = () => {
-	const codec: Codec<number> = {
+export const int53 = (): Codec<number> => {
+	return {
 		read(reader) {
 			const low = reader.view.getUint32(reader.offset, true)
 			const high = reader.view.getInt32(reader.offset + 4, true)
@@ -11,6 +11,7 @@ export const int53 = () => {
 
 			return low + TWO_PWR_32_DBL * high
 		},
+
 		write(writer, value) {
 			const bytes = new Uint8Array(8)
 			const view = new DataView(bytes.buffer)
@@ -26,6 +27,4 @@ export const int53 = () => {
 			writer.raw(bytes)
 		},
 	}
-
-	return codec
 }

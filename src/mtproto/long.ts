@@ -1,15 +1,19 @@
 import { Codec } from '../codec.js'
 
-export const long = (unsigned = false) => {
-	const codec: Codec<bigint> = {
+export const long = (unsigned = false): Codec<bigint> => {
+	return {
 		read(reader) {
 			const low = BigInt(reader.view.getUint32(reader.offset, true))
 			const high = BigInt(reader.view.getUint32(reader.offset + 4, true))
 			reader.seek(8)
 			const value = (high << 32n) | low
 
-			if (unsigned) return value
-			if (value < 0x8000000000000000n) return value
+			if (unsigned) {
+				return value
+			}
+			if (value < 0x8000000000000000n) {
+				return value
+			}
 
 			return value - 0x10000000000000000n
 		},
@@ -25,6 +29,4 @@ export const long = (unsigned = false) => {
 			writer.raw(bytes)
 		},
 	}
-
-	return codec
 }

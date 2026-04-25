@@ -2,7 +2,10 @@
 	"name": "@mytecor/codec",
 	"version": "1.0.0",
 	"description": "Binary de/serializer",
-	"scripts": {},
+	"scripts": {
+		"test": "node --import tsx --test \"src/**/*.test.ts\"",
+		"typecheck": "tsc -p ."
+	},
 	"keywords": [],
 	"author": "mytecor",
 	"license": "MIT",

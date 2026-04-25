@@ -1,19 +1,20 @@
 import { Codec } from '../codec.js'
+import { toBase16 } from '../toBase16.js'
 import { uint32 } from './uint32.js'
 
 const VECTOR_ID = 0x1cb5c415
 
-export const vector = <T>(item: Codec<T>, bare = false) => {
+export const vector = <T>(item: Codec<T>, bare = false): Codec<T[]> => {
 	const uint32Codec = uint32()
 
-	const codec: Codec<T[]> = {
+	return {
 		read(reader) {
 			if (!bare) {
 				const id = uint32Codec.read(reader)
 
 				if (id !== VECTOR_ID) {
 					throw new Error(
-						`Invalid object code, expected 0x1cb5c415 (vector), got 0x${id.toString(16)}`,
+						`Invalid object code, expected ${toBase16(VECTOR_ID)} (vector), got ${toBase16(id)}`,
 					)
 				}
 			}
@@ -27,6 +28,7 @@ export const vector = <T>(item: Codec<T>, bare = false) => {
 
 			return values
 		},
+
 		write(writer, values) {
 			if (!bare) {
 				uint32Codec.write(writer, VECTOR_ID)
@@ -39,6 +41,4 @@ export const vector = <T>(item: Codec<T>, bare = false) => {
 			}
 		},
 	}
-
-	return codec
 }

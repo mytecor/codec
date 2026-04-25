@@ -2,8 +2,8 @@ import { Codec } from '../codec.js'
 
 export const object = <T extends Record<string, unknown>>(
 	shape: { [K in keyof T]: Codec<T[K]> },
-) => {
-	const codec: Codec<T> = {
+): Codec<T> => {
+	return {
 		read(reader) {
 			const parsed = {} as T
 
@@ -13,12 +13,11 @@ export const object = <T extends Record<string, unknown>>(
 
 			return parsed
 		},
+
 		write(writer, value) {
 			for (const key in shape) {
 				shape[key].write(writer, value[key])
 			}
 		},
 	}
-
-	return codec
 }

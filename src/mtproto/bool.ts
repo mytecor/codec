@@ -1,13 +1,14 @@
 import { Codec } from '../codec.js'
+import { toBase16 } from '../toBase16.js'
 import { uint32 } from './uint32.js'
 
-const BOOL_FALSE = 0xbc799737
 const BOOL_TRUE = 0x997275b5
+const BOOL_FALSE = 0xbc799737
 
-export const bool = () => {
+export const bool = (): Codec<boolean> => {
 	const uint32Codec = uint32()
 
-	const codec: Codec<boolean> = {
+	return {
 		read(reader) {
 			const value = uint32Codec.read(reader)
 
@@ -19,13 +20,12 @@ export const bool = () => {
 			}
 
 			throw new Error(
-				`Expected either boolTrue or boolFalse, got 0x${value.toString(16)}`,
+				`Expected either ${toBase16(BOOL_TRUE)} or ${toBase16(BOOL_FALSE)}, got ${toBase16(value)}`,
 			)
 		},
+
 		write(writer, value) {
 			uint32Codec.write(writer, value ? BOOL_TRUE : BOOL_FALSE)
 		},
 	}
-
-	return codec
 }
