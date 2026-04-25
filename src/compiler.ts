@@ -1,104 +1,265 @@
-import { Codec, codecId, codecNode, CodecNode } from './codec.js'
+import { Codec, CodecNode, codecId, codecNode } from './codec.js'
 import { Reader } from './reader.js'
+import {
+	executeRead,
+	executeWrite,
+	ReadInstruction,
+	ReadProgram,
+	WriteInstruction,
+	WriteProgram,
+} from './vm.js'
 import { Writer } from './writer.js'
-import { executeRead, executeWrite, ReadProgram, WriteProgram } from './vm.js'
 
-const compileReadNode = (
+type CompileTask =
+	| {
+			type: 'visit'
+			codec: Codec<unknown>
+			node: CodecNode | undefined
+	  }
+	| {
+			type: 'object_field_before'
+			key: string
+	  }
+	| {
+			type: 'object_field_after'
+			key: string
+	  }
+	| {
+			type: 'vector_finish'
+			readStart: number
+			readBody: number
+			writeStart: number
+			writeBody: number
+	  }
+	| {
+			type: 'union_variant'
+			readDispatchIndex: number
+			writeDispatchIndex: number
+			taggedCodec: Codec<unknown> & { [codecId]: number }
+			readJumps: number[]
+			writeJumps: number[]
+	  }
+	| {
+			type: 'union_variant_end'
+			readJumps: number[]
+			writeJumps: number[]
+	  }
+	| {
+			type: 'union_finish'
+			readJumps: number[]
+			writeJumps: number[]
+	  }
+	| {
+			type: 'tag'
+			id: number
+	  }
+
+const compileNode = (
 	codec: Codec<unknown>,
 	node: CodecNode | undefined,
-): ReadProgram => {
-	if (node === undefined) {
-		return [{ opcode: 'call', codec }]
-	}
+	readProgram: ReadProgram = [],
+	writeProgram: WriteProgram = [],
+): { readProgram: ReadProgram; writeProgram: WriteProgram } => {
+	const tasks: CompileTask[] = [{ type: 'visit', codec, node }]
 
-	switch (node.kind) {
-		case 'object': {
-			const program: ReadProgram = [{ opcode: 'object_start' }]
+	while (tasks.length > 0) {
+		const task = tasks.pop() as CompileTask
 
-			for (const key of Object.keys(node.shape)) {
-				program.push(
-					...compileReadNode(node.shape[key], node.shape[key][codecNode]),
-				)
-				program.push({ opcode: 'object_set', key })
+		switch (task.type) {
+			case 'visit': {
+				if (task.node === undefined) {
+					readProgram.push({ opcode: 'call', codec: task.codec })
+					writeProgram.push({ opcode: 'call', codec: task.codec })
+					break
+				}
+
+				switch (task.node.kind) {
+					case 'object': {
+						readProgram.push({ opcode: 'object_new' })
+
+						const keys = Object.keys(task.node.shape)
+						for (let index = keys.length - 1; index >= 0; index -= 1) {
+							const key = keys[index]
+							const childCodec = task.node.shape[key]
+							tasks.push({ type: 'object_field_after', key })
+							tasks.push({
+								type: 'visit',
+								codec: childCodec,
+								node: childCodec[codecNode],
+							})
+							tasks.push({ type: 'object_field_before', key })
+						}
+						break
+					}
+
+					case 'vector': {
+						const readStart = readProgram.length
+						readProgram.push({
+							opcode: 'vector_start',
+							bare: task.node.bare,
+							body: -1,
+							exit: -1,
+						})
+						const writeStart = writeProgram.length
+						writeProgram.push({
+							opcode: 'vector_start',
+							bare: task.node.bare,
+							body: -1,
+							exit: -1,
+						})
+						const readBody = readProgram.length
+						const writeBody = writeProgram.length
+						tasks.push({
+							type: 'vector_finish',
+							readStart,
+							readBody,
+							writeStart,
+							writeBody,
+						})
+						tasks.push({
+							type: 'visit',
+							codec: task.node.item,
+							node: task.node.item[codecNode],
+						})
+						break
+					}
+
+					case 'union': {
+						const readDispatchIndex = readProgram.length
+						readProgram.push({ opcode: 'union_dispatch', variants: new Map() })
+						const writeDispatchIndex = writeProgram.length
+						writeProgram.push({ opcode: 'union_dispatch', variants: new Map() })
+						const readJumps: number[] = []
+						const writeJumps: number[] = []
+						tasks.push({ type: 'union_finish', readJumps, writeJumps })
+
+						for (
+							let index = task.node.codecs.length - 1;
+							index >= 0;
+							index -= 1
+						) {
+							tasks.push({
+								type: 'union_variant',
+								readDispatchIndex,
+								writeDispatchIndex,
+								taggedCodec: task.node.codecs[index],
+								readJumps,
+								writeJumps,
+							})
+						}
+						break
+					}
+
+					case 'tagged':
+						tasks.push({ type: 'tag', id: task.node.id })
+						tasks.push({
+							type: 'visit',
+							codec: task.node.codec,
+							node: task.node.codec[codecNode],
+						})
+						break
+				}
+
+				break
 			}
 
-			return program
+			case 'object_field_before':
+				writeProgram.push({ opcode: 'push_field', key: task.key })
+				break
+
+			case 'object_field_after':
+				readProgram.push({ opcode: 'object_set', key: task.key })
+				writeProgram.push({ opcode: 'pop_value' })
+				break
+
+			case 'vector_finish': {
+				const readVectorStart = readProgram[task.readStart] as Extract<
+					ReadInstruction,
+					{ opcode: 'vector_start' }
+				>
+				readVectorStart.body = task.readBody
+				readProgram.push({ opcode: 'vector_next', body: task.readBody })
+				readVectorStart.exit = readProgram.length
+
+				const writeVectorStart = writeProgram[task.writeStart] as Extract<
+					WriteInstruction,
+					{ opcode: 'vector_start' }
+				>
+				writeVectorStart.body = task.writeBody
+				writeProgram.push({ opcode: 'vector_next', body: task.writeBody })
+				writeVectorStart.exit = writeProgram.length
+				break
+			}
+
+			case 'union_variant': {
+				const readDispatch = readProgram[task.readDispatchIndex] as Extract<
+					ReadInstruction,
+					{ opcode: 'union_dispatch' }
+				>
+				readDispatch.variants.set(task.taggedCodec[codecId], readProgram.length)
+
+				const writeDispatch = writeProgram[task.writeDispatchIndex] as Extract<
+					WriteInstruction,
+					{ opcode: 'union_dispatch' }
+				>
+				writeDispatch.variants.set(
+					task.taggedCodec[codecId],
+					writeProgram.length,
+				)
+
+				tasks.push({
+					type: 'union_variant_end',
+					readJumps: task.readJumps,
+					writeJumps: task.writeJumps,
+				})
+				tasks.push({
+					type: 'visit',
+					codec: task.taggedCodec,
+					node: task.taggedCodec[codecNode],
+				})
+				break
+			}
+
+			case 'union_variant_end': {
+				const readJumpIndex = readProgram.length
+				readProgram.push({ opcode: 'jump', target: -1 })
+				task.readJumps.push(readJumpIndex)
+
+				const writeJumpIndex = writeProgram.length
+				writeProgram.push({ opcode: 'jump', target: -1 })
+				task.writeJumps.push(writeJumpIndex)
+				break
+			}
+
+			case 'union_finish': {
+				const readEnd = readProgram.length
+				const writeEnd = writeProgram.length
+
+				for (const jumpIndex of task.readJumps) {
+					const jump = readProgram[jumpIndex] as Extract<
+						ReadInstruction,
+						{ opcode: 'jump' }
+					>
+					jump.target = readEnd
+				}
+
+				for (const jumpIndex of task.writeJumps) {
+					const jump = writeProgram[jumpIndex] as Extract<
+						WriteInstruction,
+						{ opcode: 'jump' }
+					>
+					jump.target = writeEnd
+				}
+				break
+			}
+
+			case 'tag':
+				readProgram.push({ opcode: 'tag', id: task.id })
+				break
 		}
-
-		case 'vector':
-			return [
-				{
-					opcode: 'vector',
-					bare: node.bare,
-					item: compileReadNode(node.item, node.item[codecNode]),
-				},
-			]
-
-		case 'union':
-			return [
-				{
-					opcode: 'union',
-					variants: new Map(
-						node.codecs.map((taggedCodec) => [
-							taggedCodec[codecId],
-							compileReadNode(taggedCodec, taggedCodec[codecNode]),
-						]),
-					),
-				},
-			]
-
-		case 'tagged':
-			return [
-				...compileReadNode(node.codec, node.codec[codecNode]),
-				{ opcode: 'tag', id: node.id },
-			]
-	}
-}
-
-const compileWriteNode = (
-	codec: Codec<unknown>,
-	node: CodecNode | undefined,
-): WriteProgram => {
-	if (node === undefined) {
-		return [{ opcode: 'call', codec }]
 	}
 
-	switch (node.kind) {
-		case 'object':
-			return Object.keys(node.shape).map((key) => ({
-				opcode: 'field',
-				key,
-				program: compileWriteNode(node.shape[key], node.shape[key][codecNode]),
-			}))
-
-		case 'vector':
-			return [
-				{
-					opcode: 'vector',
-					bare: node.bare,
-					item: compileWriteNode(node.item, node.item[codecNode]),
-				},
-			]
-
-		case 'union':
-			return [
-				{
-					opcode: 'union',
-					variants: new Map(
-						node.codecs.map((taggedCodec) => [
-							taggedCodec[codecId],
-							compileWriteNode(taggedCodec, taggedCodec[codecNode]),
-						]),
-					),
-				},
-			]
-
-		case 'tagged':
-			return compileWriteNode(node.codec, node.codec[codecNode])
-
-		default:
-			return [{ opcode: 'call', codec }]
-	}
+	return { readProgram, writeProgram }
 }
 
 export class Compiler<T> {
@@ -108,14 +269,9 @@ export class Compiler<T> {
 
 	constructor(schema: Codec<T>) {
 		this.schema = schema
-		this.readProgram = compileReadNode(
-			schema as Codec<unknown>,
-			schema[codecNode],
-		)
-		this.writeProgram = compileWriteNode(
-			schema as Codec<unknown>,
-			schema[codecNode],
-		)
+		const programs = compileNode(schema as Codec<unknown>, schema[codecNode])
+		this.readProgram = programs.readProgram
+		this.writeProgram = programs.writeProgram
 	}
 
 	read(buffer: ArrayBuffer) {

@@ -23,6 +23,6 @@ export const object = <T extends Record<string, unknown>>(
 				}
 			},
 		},
-		{ kind: 'object', shape: shape as Record<string, Codec<unknown>> },
+		{ kind: 'object', shape },
 	)
 }

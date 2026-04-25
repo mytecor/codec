@@ -31,6 +31,6 @@ export const union = <T extends readonly unknown[]>(
 				map[id].write(writer, value)
 			},
 		},
-		{ kind: 'union', codecs: [...codecs] as TaggedCodec<unknown>[] },
+		{ kind: 'union', codecs: [...codecs] },
 	)
 }

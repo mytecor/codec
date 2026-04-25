@@ -42,6 +42,6 @@ export const vector = <T>(item: Codec<T>, bare = false): Codec<T[]> => {
 				}
 			},
 		},
-		{ kind: 'vector', item: item as Codec<unknown>, bare },
+		{ kind: 'vector', item, bare },
 	)
 }
