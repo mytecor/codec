@@ -1,4 +1,4 @@
-import { Codec, codecId, TaggedCodec } from '../codec.js'
+import { Codec, codecId, codecNode, TaggedCodec } from '../codec.js'
 
 export const id = <T>(codec: Codec<T>, id: number) => {
 	const tag = (object: T) => {
@@ -18,6 +18,11 @@ export const id = <T>(codec: Codec<T>, id: number) => {
 	taggedCodec.read = (reader) => tag(codec.read(reader))
 	taggedCodec.write = codec.write
 	taggedCodec[codecId] = id
+	taggedCodec[codecNode] = {
+		kind: 'tagged',
+		id,
+		codec: codec as Codec<unknown>,
+	}
 
 	return taggedCodec
 }

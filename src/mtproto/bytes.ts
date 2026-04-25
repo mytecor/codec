@@ -69,7 +69,7 @@ export const bytes = (): Codec<Uint8Array> => {
 			}
 
 			return value
-    },
+		},
 
 		write(writer, value) {
 			const length = value.byteLength

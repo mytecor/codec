@@ -1,4 +1,10 @@
-import { Codec, codecId, TaggedCodec, TaggedValue } from '../codec.js'
+import {
+	Codec,
+	codecId,
+	defineCodec,
+	TaggedCodec,
+	TaggedValue,
+} from '../codec.js'
 import { uint32 } from './uint32.js'
 
 export const union = <T extends readonly unknown[]>(
@@ -12,16 +18,19 @@ export const union = <T extends readonly unknown[]>(
 		}),
 	)
 
-	return {
-		read(reader) {
-			const id = uint32Codec.read(reader)
-			return map[id].read(reader)
-		},
+	return defineCodec(
+		{
+			read(reader) {
+				const id = uint32Codec.read(reader)
+				return map[id].read(reader)
+			},
 
-		write(writer, value) {
-			const id = value[codecId]
-			uint32Codec.write(writer, id)
-			map[id].write(writer, value)
+			write(writer, value) {
+				const id = value[codecId]
+				uint32Codec.write(writer, id)
+				map[id].write(writer, value)
+			},
 		},
-	}
+		{ kind: 'union', codecs: [...codecs] as TaggedCodec<unknown>[] },
+	)
 }
