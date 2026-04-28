@@ -6,7 +6,7 @@ import {
 	Writer,
 } from '@mytecor/codec-core'
 import createDebug from 'debug'
-import { executeRead, executeWrite, ReadProgram, WriteProgram } from './vm.js'
+import { execute, Program } from './vm.js'
 
 const compilerDebug = createDebug('codec:compiler')
 const startDebug = compilerDebug.extend('start')
@@ -26,80 +26,140 @@ const emitBranchCaseFinishDebug = compilerDebug.extend(
 )
 const emitBranchFinishDebug = compilerDebug.extend('emit:branch_finish')
 
-type VisitTask = {
-	type: 'visit'
-	codec: Codec<unknown>
-	node: CodecNode | undefined
+type SequenceNode = Extract<CodecNode, { kind: 'sequence' }>
+type BranchNode = Extract<CodecNode, { kind: 'branch' }>
+type SequenceStep = SequenceNode['steps'][number]
+type BranchCase = BranchNode['branches'][number]
+type ReadBranchInstruction = Extract<Program[number], { opcode: 'read_branch' }>
+type WriteBranchInstruction = Extract<
+	Program[number],
+	{ opcode: 'write_branch' }
+>
+
+class CompileContext {
+	readonly readProgram: Program = []
+	readonly writeProgram: Program = []
+
+	pushRead<T extends Program[number]>(instruction: T): number {
+		return pushInstruction(this.readProgram, instruction)
+	}
+
+	pushWrite<T extends Program[number]>(instruction: T): number {
+		return pushInstruction(this.writeProgram, instruction)
+	}
 }
 
-type SequenceStepStartTask = {
-	type: 'sequence_step_start'
-	step: Extract<CodecNode, { kind: 'sequence' }>['steps'][number]
+type BranchCompileSide<TInstruction extends Program[number]> = {
+	program: Program
+	instruction: TInstruction
+	endJumps: number[]
 }
 
-type SequenceStepFinishTask = {
-	type: 'sequence_step_finish'
-	step: Extract<CodecNode, { kind: 'sequence' }>['steps'][number]
-}
+type ReadBranchCompileSide = BranchCompileSide<ReadBranchInstruction>
+type WriteBranchCompileSide = BranchCompileSide<WriteBranchInstruction>
 
-type BranchCompileState = {
-	readInstruction: Extract<ReadProgram[number], { opcode: 'branch' }>
-	writeInstruction: Extract<WriteProgram[number], { opcode: 'branch' }>
-	readEndJumps: number[]
-	writeEndJumps: number[]
-}
+class BranchCompileState {
+	private readonly context: CompileContext
+	readonly read: ReadBranchCompileSide
+	readonly write: WriteBranchCompileSide
 
-type BranchCaseStartTask = {
-	type: 'branch_case_start'
-	branch: Extract<CodecNode, { kind: 'branch' }>['branches'][number]
-	state: BranchCompileState
-}
+	constructor(node: BranchNode, context: CompileContext) {
+		this.context = context
+		this.read = {
+			program: context.readProgram,
+			instruction: {
+				opcode: 'read_branch',
+				selector: node.selector,
+				branches: new Map(),
+			},
+			endJumps: [],
+		}
+		this.write = {
+			program: context.writeProgram,
+			instruction: {
+				opcode: 'write_branch',
+				selector: node.selector,
+				select: node.select,
+				branches: new Map(),
+			},
+			endJumps: [],
+		}
+	}
 
-type BranchCaseFinishTask = {
-	type: 'branch_case_finish'
-	branch: Extract<CodecNode, { kind: 'branch' }>['branches'][number]
-	state: BranchCompileState
-}
+	pushInstructions(): void {
+		this.context.pushRead(this.read.instruction)
+		this.context.pushWrite(this.write.instruction)
+	}
 
-type BranchFinishTask = {
-	type: 'branch_finish'
-	state: BranchCompileState
+	setBranches(key: BranchCase['key']): void {
+		this.read.instruction.branches.set(key, this.read.program.length)
+		this.write.instruction.branches.set(key, this.write.program.length)
+	}
+
+	pushEndJumps(): void {
+		this.read.endJumps.push(
+			this.context.pushRead({ opcode: 'jump', target: -1 }),
+		)
+		this.write.endJumps.push(
+			this.context.pushWrite({ opcode: 'jump', target: -1 }),
+		)
+	}
+
+	patchJumps(): void {
+		patchJumps(this.read.program, this.read.endJumps)
+		patchJumps(this.write.program, this.write.endJumps)
+	}
 }
 
 type CompileTask =
-	| VisitTask
-	| SequenceStepStartTask
-	| SequenceStepFinishTask
-	| BranchCaseStartTask
-	| BranchCaseFinishTask
-	| BranchFinishTask
+	| { type: 'visit'; codec: Codec<unknown>; node: CodecNode | undefined }
+	| { type: 'sequence_step_start'; step: SequenceStep }
+	| { type: 'sequence_step_finish'; step: SequenceStep }
+	| { type: 'branch_case_start'; branch: BranchCase; state: BranchCompileState }
+	| {
+			type: 'branch_case_finish'
+			branch: BranchCase
+			state: BranchCompileState
+	  }
+	| { type: 'branch_finish'; state: BranchCompileState }
 
-const visitTask = (codec: Codec<unknown>): VisitTask => ({
+const visitTask = (codec: Codec<unknown>): CompileTask => ({
 	type: 'visit',
 	codec,
 	node: codec[codecNode],
 })
 
-const emitCall = (
-	codec: Codec<unknown>,
-	readProgram: ReadProgram,
-	writeProgram: WriteProgram,
-): void => {
-	readProgram.push({ opcode: 'call', codec })
-	writeProgram.push({ opcode: 'call', codec })
+const pushInstruction = <T extends Program[number]>(
+	program: Program,
+	instruction: T,
+): number => {
+	program.push(instruction)
+	return program.length - 1
+}
+
+const patchJumps = (program: Program, jumpIndexes: number[]): void => {
+	for (const jumpIndex of jumpIndexes) {
+		const instruction = program[jumpIndex]
+		if (instruction?.opcode === 'jump') {
+			instruction.target = program.length
+		}
+	}
+}
+
+const emitCall = (codec: Codec<unknown>, context: CompileContext): void => {
+	context.pushRead({ opcode: 'read_call', codec })
+	context.pushWrite({ opcode: 'write_call', codec })
 }
 
 const scheduleSequence = (
 	workStack: CompileTask[],
-	node: Extract<CodecNode, { kind: 'sequence' }>,
-	readProgram: ReadProgram,
-	writeProgram: WriteProgram,
+	node: SequenceNode,
+	context: CompileContext,
 ): void => {
-	readProgram.push({ opcode: 'create_value', create: node.create })
+	context.pushRead({ opcode: 'create_value', create: node.create })
 	scheduleSequenceDebug('%O', {
 		stepCount: node.steps.length,
-		readProgramLength: readProgram.length,
-		writeProgramLength: writeProgram.length,
+		context,
 	})
 
 	for (let index = node.steps.length - 1; index >= 0; index -= 1) {
@@ -112,32 +172,15 @@ const scheduleSequence = (
 
 const scheduleBranch = (
 	workStack: CompileTask[],
-	node: Extract<CodecNode, { kind: 'branch' }>,
-	readProgram: ReadProgram,
-	writeProgram: WriteProgram,
+	node: BranchNode,
+	context: CompileContext,
 ): void => {
-	const state: BranchCompileState = {
-		readInstruction: {
-			opcode: 'branch',
-			selector: node.selector,
-			branches: new Map(),
-		},
-		writeInstruction: {
-			opcode: 'branch',
-			selector: node.selector,
-			select: node.select,
-			branches: new Map(),
-		},
-		readEndJumps: [],
-		writeEndJumps: [],
-	}
+	const state = new BranchCompileState(node, context)
 
-	readProgram.push(state.readInstruction)
-	writeProgram.push(state.writeInstruction)
+	state.pushInstructions()
 	scheduleBranchDebug('%O', {
 		branchCount: node.branches.length,
-		readProgramLength: readProgram.length,
-		writeProgramLength: writeProgram.length,
+		context,
 	})
 
 	workStack.push({ type: 'branch_finish', state })
@@ -153,19 +196,17 @@ const scheduleBranch = (
 const buildPrograms = (
 	codec: Codec<unknown>,
 	node: CodecNode | undefined,
-): { readProgram: ReadProgram; writeProgram: WriteProgram } => {
-	const readProgram: ReadProgram = []
-	const writeProgram: WriteProgram = []
+): { readProgram: Program; writeProgram: Program } => {
+	const context = new CompileContext()
 	const workStack: CompileTask[] = [{ type: 'visit', codec, node }]
 
 	startDebug('%O', { hasNode: node !== undefined })
 
-	while (workStack.length > 0) {
+	while (true) {
 		const task = workStack.pop()
 		if (!task) {
-			continue
+			break
 		}
-
 		switch (task.type) {
 			case 'visit': {
 				taskVisitDebug('%O', {
@@ -175,21 +216,18 @@ const buildPrograms = (
 				})
 
 				if (task.node === undefined) {
-					emitCall(task.codec, readProgram, writeProgram)
-					emitCallDebug('%O', {
-						readProgramLength: readProgram.length,
-						writeProgramLength: writeProgram.length,
-					})
+					emitCall(task.codec, context)
+					emitCallDebug('%O', {context})
 					break
 				}
 
 				switch (task.node.kind) {
 					case 'sequence':
-						scheduleSequence(workStack, task.node, readProgram, writeProgram)
+						scheduleSequence(workStack, task.node, context)
 						break
 
 					case 'branch':
-						scheduleBranch(workStack, task.node, readProgram, writeProgram)
+						scheduleBranch(workStack, task.node, context)
 						break
 				}
 
@@ -197,34 +235,21 @@ const buildPrograms = (
 			}
 
 			case 'sequence_step_start':
-				writeProgram.push({ opcode: 'push_value', select: task.step.select })
-				emitPushValueDebug('%O', {
-					writeProgramLength: writeProgram.length,
-				})
+				context.pushWrite({ opcode: 'push_value', select: task.step.select })
+				emitPushValueDebug('%O', {context})
 				break
 
 			case 'sequence_step_finish':
-				readProgram.push({ opcode: 'assign_value', assign: task.step.assign })
-				writeProgram.push({ opcode: 'pop_value' })
-				emitSequenceStepFinishDebug('%O', {
-					readProgramLength: readProgram.length,
-					writeProgramLength: writeProgram.length,
-				})
+				context.pushRead({ opcode: 'assign_value', assign: task.step.assign })
+				context.pushWrite({ opcode: 'pop_value' })
+				emitSequenceStepFinishDebug('%O', {context})
 				break
 
 			case 'branch_case_start':
-				task.state.readInstruction.branches.set(
-					task.branch.key,
-					readProgram.length,
-				)
-				task.state.writeInstruction.branches.set(
-					task.branch.key,
-					writeProgram.length,
-				)
+				task.state.setBranches(task.branch.key)
 				emitBranchCaseStartDebug('%O', {
 					key: task.branch.key,
-					readTarget: readProgram.length,
-					writeTarget: writeProgram.length,
+					context,
 				})
 				workStack.push({
 					type: 'branch_case_finish',
@@ -236,65 +261,39 @@ const buildPrograms = (
 
 			case 'branch_case_finish': {
 				if (task.branch.map) {
-					readProgram.push({ opcode: 'map_value', map: task.branch.map })
+					context.pushRead({ opcode: 'map_value', map: task.branch.map })
 					emitMapValueDebug('%O', {
 						key: task.branch.key,
-						readProgramLength: readProgram.length,
+						context,
 					})
 				}
 
-				task.state.readEndJumps.push(
-					readProgram.push({ opcode: 'jump', target: -1 }) - 1,
-				)
-				task.state.writeEndJumps.push(
-					writeProgram.push({ opcode: 'jump', target: -1 }) - 1,
-				)
+				task.state.pushEndJumps()
 				emitBranchCaseFinishDebug('%O', {
 					key: task.branch.key,
-					readProgramLength: readProgram.length,
-					writeProgramLength: writeProgram.length,
+					context,
 				})
 				break
 			}
 
 			case 'branch_finish':
-				for (const jumpIndex of task.state.readEndJumps) {
-					;(
-						readProgram[jumpIndex] as Extract<
-							ReadProgram[number],
-							{ opcode: 'jump' }
-						>
-					).target = readProgram.length
-				}
-
-				for (const jumpIndex of task.state.writeEndJumps) {
-					;(
-						writeProgram[jumpIndex] as Extract<
-							WriteProgram[number],
-							{ opcode: 'jump' }
-						>
-					).target = writeProgram.length
-				}
+				task.state.patchJumps()
 
 				emitBranchFinishDebug('%O', {
-					readProgramLength: readProgram.length,
-					writeProgramLength: writeProgram.length,
+					context,
 				})
 				break
 		}
 	}
 
-	finishDebug('%O', {
-		readProgramLength: readProgram.length,
-		writeProgramLength: writeProgram.length,
-	})
+	finishDebug('%O', {context})
 
-	return { readProgram, writeProgram }
+	return context
 }
 
 export class Compiler<T> {
-	private readonly readProgram: ReadProgram
-	private readonly writeProgram: WriteProgram
+	private readonly readProgram: Program
+	private readonly writeProgram: Program
 
 	constructor(readonly schema: Codec<T>) {
 		const { readProgram, writeProgram } = buildPrograms(
@@ -307,12 +306,14 @@ export class Compiler<T> {
 
 	read(buffer: ArrayBuffer) {
 		const reader = new Reader(buffer)
-		return executeRead(this.readProgram, reader) as T
+		const valueStack: unknown[] = []
+		execute(this.readProgram, valueStack, reader)
+		return valueStack[valueStack.length - 1] as T
 	}
 
 	write(value: T) {
 		const writer = new Writer()
-		executeWrite(this.writeProgram, writer, value)
+		execute(this.writeProgram, [value], writer)
 		return writer.finish()
 	}
 }
